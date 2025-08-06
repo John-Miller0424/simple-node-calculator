@@ -1,0 +1,32 @@
+name: "Update Translations"
+
+on:
+  schedule:
+    - cron: "0 9 * * 1-5" # hourly during office hours
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deps
+      - name: Install & Pull
+        run: |
+          # pull last translations
+          node bin/translations/translations-pull.js
+          # run prettier on changed files
+          git add . && pnpm lint-staged
+      - name: Create Pull Request
+        id: cpr
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7
+        with:
+          commit-message: "chore: update translations"
+          title: "chore: update translations"
+          committer: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          author: "github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+          branch: patch/update-translations
+          delete-branch: true
+          branch-suffix: short-commit-hash
+          reviewers: ${{ github.event.sender.login }}
+          token: ${{ secrets.PAT_K8S_PORTAL }}

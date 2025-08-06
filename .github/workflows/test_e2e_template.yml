@@ -1,0 +1,109 @@
+name: E2E Tests Template
+
+on:
+  workflow_call:
+    inputs:
+      shardName:
+        required: true
+        type: string
+      shardIndex:
+        required: true
+        type: number
+      shardTotal:
+        required: true
+        type: number
+      artifact-name:
+        description: Artifact name containing built code to test
+        required: false
+        type: string
+        default: build-artifact
+      build-workflow:
+        description: Name of the workflow which generated the build artifacts
+        required: false
+        type: string
+        default: ci.yml
+      build-and-test-in-same-workflow:
+        description: Set to true if the build and test jobs are part of the same workflow
+        required: false
+        type: string
+        default: "true"
+
+jobs:
+  test:
+    name: test-${{ inputs.shardName }}-${{ inputs.shardIndex }}
+    runs-on: ubuntu-latest
+    steps:
+      - id: auth
+        uses: google-github-actions/auth@6fc4af4b145ae7821d527454aa9bd537d1f2dc5f # v2
+        with:
+          token_format: "access_token"
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SA }}
+          create_credentials_file: "false"
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        with:
+          registry: eu.gcr.io
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deps
+      - name: Download build artifact
+        if: ${{ inputs.build-and-test-in-same-workflow == 'true' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: build
+      - name: Download artifact from another workflow
+        if: ${{ inputs.build-and-test-in-same-workflow != 'true' }}
+        uses: dawidd6/action-download-artifact@ac66b43f0e6a346234dd65d4d0c8fbb31cb316e5 # v11
+        with:
+          workflow: ${{ inputs.build-workflow }}
+          workflow_conclusion: success
+          event: push
+          commit: ${{ github.sha }}
+          name: ${{ inputs.artifact-name }}
+          path: build
+      - name: Clone dev-services
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          repository: RequestFinance/dev-services
+          path: ./dev-services
+          token: ${{ secrets.PAT_K8S_PORTAL }}
+          ref: main
+          persist-credentials: false
+      - name: Start dev-services
+        run: >-
+          cd dev-services
+          && make network
+          && docker compose
+          -f docker-compose.base.yml
+          -f docker-compose.services.yml
+          up -d mongo redis pubsub storage
+      - name: Start portal, invoicing, and playwright
+        run: docker compose -f docker-compose.e2e.yml up -d
+        env:
+          SHARD_NAME: ${{ inputs.shardName }}
+          SHARD_INDEX: ${{ inputs.shardIndex }}
+          SHARD_TOTAL: ${{ inputs.shardTotal }}
+          SUBSCRIPTION_IGNORE_ISSUERS: "realt.issuer@fakemail.test"
+          FIREBASE_WEB_API_KEY: ${{ secrets.FIREBASE_WEB_API_KEY }}
+      - name: Setup Corepack in the Playwright container
+        run: docker compose -f docker-compose.e2e.yml exec -T playwright corepack enable
+      - name: Wait for MongoDB
+        run: docker compose -f docker-compose.e2e.yml exec -T playwright pnpm wait:mongodb
+      - name: Import Fixtures
+        run: pnpm fixtures
+        working-directory: e2e
+      - name: Wait for invoicing
+        run: docker compose -f docker-compose.e2e.yml exec -T playwright pnpm wait:invoicing
+      - name: Run E2E tests
+        run: docker compose -f docker-compose.e2e.yml exec -T playwright pnpm test:run:ci:${{ inputs.shardName }}
+        timeout-minutes: 50
+      - name: Dump Docker logs on failure
+        if: failure()
+        uses: jwalton/gh-docker-logs@2741064ab9d7af54b0b1ffb6076cf64c16f0220e # v2
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: "!cancelled()" # Run this step even when the tests fail. Skip if the workflow is canceled.
+        with:
+          name: playwright-blob-${{ inputs.shardName }}-${{ inputs.shardIndex }}
+          path: e2e/test-results

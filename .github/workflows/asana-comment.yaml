@@ -1,0 +1,25 @@
+name: Asana Comment
+
+on:
+  pull_request:
+    types: [opened, closed, reopened]
+
+jobs:
+  create-comment-in-asana-task-job:
+    runs-on: ubuntu-latest
+    name: Create a comment in Asana Task
+    if: ${{ startsWith(github.head_ref , 'dependabot/') == false }}
+    steps:
+      - name: Create a comment
+        uses: Asana/comment-on-task-github-action@c0947e8462e93e32f5baa70b1ac983905258b53a # v1.2
+        id: createComment
+        with:
+          asana-secret: ${{ secrets.ASANA_SECRET }}
+          comment-text: |-
+            Pull request {{PR_STATE}} by ${{ github.actor }}:
+            {{PR_NAME}}
+            {{PR_URL}}
+      - name: Get comment status
+        run: >-
+          echo "Status of the comment creation:
+          ${{ steps.createComment.outputs.status }}"

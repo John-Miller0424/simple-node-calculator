@@ -1,0 +1,23 @@
+name: Test Reusable Workflow
+
+on:
+  workflow_call:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deps
+      - name: Verify format
+        run: pnpm format:check
+      - name: Verify lint
+        run: pnpm lint:check
+      - name: Verify type checking
+        run: pnpm tsc
+      - uses: vishnudxb/cancel-workflow@c3c77eb4383ba7d023e6614a07d94fe990501ac6 # v1.2
+        if: failure()
+        with:
+          repo: ${{ github.repository }}
+          workflow_id: ${{ github.run_id }}
+          access_token: ${{ github.token }}

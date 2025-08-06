@@ -1,0 +1,146 @@
+name: ci
+on:
+  push:
+    branches:
+      - main
+      - release-[0-9]+.[0-9]+.[0-9]+
+      - hotfix/**
+      - hotfix-**
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    uses: ./.github/workflows/lint.yml
+
+  test:
+    uses: ./.github/workflows/test.yml
+
+  build-storybook:
+    if: github.ref == 'refs/heads/main'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-storybook
+      cancel-in-progress: true
+    uses: ./.github/workflows/build_storybook.yml
+
+  deploy-storybook:
+    needs:
+      - lint
+      - test
+      - build-storybook
+    if: github.ref == 'refs/heads/main'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-storybook
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deploy
+        with:
+          artifact-name: build-artifact-storybook
+          inject-env-vars: "false"
+          sentry-enabled: "false"
+        env:
+          AWS_REGION: eu-west-1
+          AWS_S3_BUCKET: storybook.request.finance
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  build:
+    if: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'qa/') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/build
+        env:
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        with:
+          generate-sourcemap: "${{ github.event_name != 'pull_request' }}"
+          sentry-enabled: "${{ github.event_name != 'pull_request' }}"
+
+  test-e2e:
+    if: ${{ startsWith(github.ref, 'refs/heads/hotfix') == false }}
+    needs: [build]
+    uses: ./.github/workflows/test_e2e.yml
+    secrets: inherit
+
+  deploy-croissant:
+    needs:
+      - lint
+      - test
+      - build
+    if: github.ref == 'refs/heads/main'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-deploy-croissant
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deploy
+        env:
+          AWS_REGION: eu-west-1
+          AWS_S3_BUCKET: croissant-app.request.finance
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          SENTRY_ENV: croissant
+          SENTRY_TOASTS_ENABLED: true
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          PUBLIC_URL: https://croissant-app.request.finance
+          NETWORK_TYPE: test
+          AUTH0_CLIENT_ID: cvvTiEvxiBmTalUXEabmhrPhj7gQnR3y
+
+  deploy-baguette:
+    needs:
+      - lint
+      - test
+      - build
+    if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-deploy-baguette
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deploy
+        env:
+          AWS_REGION: eu-west-1
+          AWS_S3_BUCKET: baguette-app.request.finance
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          SENTRY_ENV: baguette
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          PUBLIC_URL: https://baguette-app.request.finance
+          NETWORK_TYPE: test
+          AUTH0_CLIENT_ID: p8hDRhunNPlbwwF6nXqmbLNUR3adI1oY
+
+  deploy-baguette-mainnet:
+    needs:
+      - lint
+      - test
+      - build
+    if: github.event_name != 'pull_request' && github.ref != 'refs/heads/main'
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.ref }}-deploy-baguette-mainnet
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deploy
+        env:
+          AWS_REGION: eu-west-1
+          AWS_S3_BUCKET: baguette-app-mainnet.request.finance
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          SENTRY_ENV: baguette-mainnet
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          PUBLIC_URL: https://baguette-app-mainnet.request.finance
+          NETWORK_TYPE: live
+          AUTH0_CLIENT_ID: Jd4U0pN2S1ohlWOgzEArzIc3NKZyRb3f

@@ -1,0 +1,60 @@
+name: cd
+on:
+  release:
+    types:
+      - published
+
+jobs:
+  deploy-prod:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deploy
+        with:
+          build-and-deploy-in-same-workflow: "false"
+        env:
+          VERSION: ${{ github.ref_name }}
+          AWS_REGION: eu-west-1
+          AWS_S3_BUCKET: app.request.finance
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          SENTRY_ENV: production
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          PUBLIC_URL: https://app.request.finance
+          NETWORK_TYPE: live
+          AUTH0_CLIENT_ID: aOztubLfi988WiPwhjH2IVpzbAv84NA1
+          ALCHEMY_API_KEY: EKlFPG1B1pCcDNaJVdpf-tGGzWQ0kKbP
+          INFURA_API_KEY: 437289c1505d47d7aeab46cca648aee2
+          SOLANA_RPC_URL: https://stylish-dawn-lake.solana-mainnet.quiknode.pro/1aec20843e83ea0f7455cb46e539f52d1ed02087/
+          SEGMENT_TEST_ID: TIB5HveARTpyNtKBirGA24CTK62dCrEV
+          SEGMENT_LIVE_ID: SDhUERyNf6meEuiL0loHSrpErUSZ3nR4
+          ETHERSCAN_API_KEY: TCVQQU5V39TAS1V6HF61P9K7IJZVEHH1D9
+          PAYSO_URL: "https://core-api.pay.so"
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@b0fa283ad8fea605de13dc3f449259339835fc52 # v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_MAIN_TECH }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "A new version of `${{ github.event.repository.name }}` just shipped: `${{ github.event.release.name }}`! ⛴️"
+                  }
+                },
+                {
+                  "type": "context",
+                  "elements": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "🚀 Release notes: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }} @pms"
+                    }
+                  ]
+                }
+              ]
+            }

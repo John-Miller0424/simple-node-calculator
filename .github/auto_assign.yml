@@ -1,0 +1,17 @@
+addReviewers: true
+addAssignees: false
+
+reviewers:
+  - AdamREQ
+  - kevindavee
+  - PaulvanMotman
+  - alexandre-abrioux
+  - SPeshov
+  - leoslr
+
+# Set 0 to add all the reviewers (default: 0)
+numberOfReviewers: 2
+
+skipKeywords:
+  - wip
+  - draft

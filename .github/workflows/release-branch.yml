@@ -1,0 +1,75 @@
+name: Create Release Branch
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 15 * * 2" # Every Tuesday at 4pm UTC+1 / 3pm UTC / 12pm UTC-3
+
+jobs:
+  create-release-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.PAT_K8S_PORTAL }}
+      - name: Retrieve last version
+        id: last-release
+        run: echo "tag=$(git tag -l --sort=-v:refname | grep -v v | head -n 1)" >> "$GITHUB_OUTPUT"
+      - name: Bump release version
+        id: next-release
+        uses: christian-draeger/increment-semantic-version@18746485477492fd90f2664f8470b34d9208fa17 # 1.2.3
+        with:
+          current-version: ${{ steps.last-release.outputs.tag }}
+          version-fragment: "feature"
+      - name: Git - create release branch
+        run: git checkout -b release-${{ steps.next-release.outputs.next-version }}
+      - name: Git - push release branch
+        run: git push origin release-${{ steps.next-release.outputs.next-version }}
+      - name: Send Slack notification
+        uses: slackapi/slack-github-action@b0fa283ad8fea605de13dc3f449259339835fc52 # v2.1.0
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_URL_MAIN_TECH }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "blocks": [
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": ":croissant: *turned into* :baguette_bread: *_planning time!_*\n\n`main` has been forked to `release-${{ steps.next-release.outputs.next-version }}`.\nA new release is planned tomorrow at 2pm UTC."
+                  }
+                },
+                {
+                  "type": "divider"
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "\n- @ops-devs - check your commits part of the <https://github.com/RequestFinance/invoicing/releases|planned release> and review the ones that <https://github.com/RequestFinance/invoicing/compare/release-${{ steps.next-release.outputs.next-version }}...main|won't be included>\n- @pms / <@U03RWTTL7GF> - do we have your green light?\n\nGive us your :white_check_mark:"
+                  }
+                },
+                {
+                  "type": "divider"
+                },
+                {
+                  "type": "section",
+                  "text": {
+                    "type": "mrkdwn",
+                    "text": "- *⚠️ New commits on `main` won't make it to this week's release.*\n- If needed, you can merge/cherry-pick commits from `main` to `release-${{ steps.next-release.outputs.next-version }}`. Please announce it on #main_tech and ping <@U03RWTTL7GF> for QA."
+                  }
+                },
+                {
+                  "type": "context",
+                  "elements": [
+                    {
+                      "type": "mrkdwn",
+                      "text": "📋 Read our front-end release process documentation <https://www.notion.so/request/Front-End-QA-Release-Process-bb1e8c8dcadb4c01ac9964e0f9fab3ec|on Notion>."
+                    }
+                  ]
+                }
+              ]
+            }

@@ -1,0 +1,37 @@
+name: Release Drafter
+
+on:
+  push:
+    branches:
+      - release-[0-9]+.[0-9]+.[0-9]+
+
+jobs:
+  create-release-draft:
+    permissions:
+      # write permission is required to create a GitHub release
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - uses: ./.github/actions/deps
+      - name: Git - retrieve last tag
+        id: last-release
+        run: echo "tag=$(git tag -l --sort=-v:refname | grep -v v | head -n 1)" >> "$GITHUB_OUTPUT"
+      - name: Retrieve release version
+        id: release
+        run: echo "version=$(echo "${{ github.ref_name }}" | sed -e "s/^release-//")" >> "$GITHUB_OUTPUT"
+      - name: Generate release note
+        id: release-note
+        run: node bin/release/index.js ${{ steps.last-release.outputs.tag }} ${{ steps.release.outputs.version }} ${{ github.ref_name }} > release.md
+      - uses: ncipollo/release-action@bcfe5470707e8832e12347755757cec0eb3c22af # v1
+        with:
+          tag: "${{ steps.release.outputs.version }}"
+          name: "${{ steps.release.outputs.version }}"
+          commit: "${{ github.ref_name }}" # target the release branch
+          draft: "true"
+          allowUpdates: "true"
+          updateOnlyUnreleased: "true"
+          bodyFile: "release.md"

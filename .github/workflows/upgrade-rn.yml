@@ -1,0 +1,31 @@
+name: Upgrade RN dependencies
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "next or latest"
+        required: true
+        default: "next"
+
+jobs:
+  upgrade-rn:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deps
+      - name: Update @requestnetwork/*@${{ github.event.inputs.version }}
+        continue-on-error: true
+        run: |
+          export DEPS=$(cat package.json | jq '[.dependencies | to_entries | .[] | select(.key | startswith("@requestnetwork"))] | map(.key+"@${{ github.event.inputs.version }}") | join(" ")' -r) && [ -z "${DEPS}" ] || pnpm add --save-exact --workspace-root $DEPS
+          export DEVDEPS=$(cat package.json | jq '[.devDependencies | to_entries | .[] | select(.key | startswith("@requestnetwork"))] | map(.key+"@${{ github.event.inputs.version }}") | join(" ")' -r) && [ -z "${DEVDEPS}" ] || pnpm add --save-exact --workspace-root --save-dev $DEVDEPS
+      - name: Create Pull Request
+        id: cpr
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7
+        with:
+          commit-message: "chore: upgrade RN libraries"
+          title: "chore: upgrade RN libraries"
+          branch: patch/update-rn
+          delete-branch: true
+          branch-suffix: short-commit-hash
+          reviewers: ${{ github.event.sender.login }}

@@ -1,0 +1,117 @@
+name: deploy
+description: Deploy application to S3
+inputs:
+  artifact-name:
+    description: Artifact name containing built code to deploy
+    required: false
+    default: build-artifact
+  build-workflow:
+    description: Name of the workflow which generated the build artifacts
+    required: false
+    default: ci.yml
+  build-and-deploy-in-same-workflow:
+    description: Set to true if the build and deploy jobs are part of the same workflow
+    required: false
+    default: "true"
+  inject-env-vars:
+    description: Set to true if the environment variables should be injected before deployment.
+    required: false
+    default: "true"
+  sentry-enabled:
+    description: Should a deployment be made on Sentry
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - uses: ./.github/actions/short-sha
+      id: short-sha
+
+    - uses: ./.github/actions/deps
+
+    - name: Download build artifact
+      if: ${{ inputs.build-and-deploy-in-same-workflow == 'true' }}
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: build
+
+    - name: Download artifact from another workflow
+      if: ${{ inputs.build-and-deploy-in-same-workflow != 'true' }}
+      uses: dawidd6/action-download-artifact@09f2f74827fd3a8607589e5ad7f9398816f540fe # v3
+      with:
+        workflow: ${{ inputs.build-workflow }}
+        workflow_conclusion: ""
+        event: push
+        commit: ${{ github.sha }}
+        name: ${{ inputs.artifact-name }}
+        path: build
+
+    - name: Inject environment variables into the build
+      if: ${{ inputs.inject-env-vars == 'true' }}
+      shell: sh
+      run: pnpm build:env --disposable
+      env:
+        VERSION_SHA: ${{ steps.short-sha.outputs.hash }}
+
+    - name: Compute Subresource Integrity
+      shell: sh
+      run: pnpm build:sri
+
+    - name: Inject release version in the new manifest
+      if: ${{ inputs.inject-env-vars == 'true' }}
+      shell: sh
+      run: >-
+        sed -i
+        's/VERSION_PLACEHOLDER/${{ steps.short-sha.outputs.hash }}/g'
+        ./build/manifest.json
+
+    - name: Upload new assets to S3
+      shell: sh
+      run: >-
+        aws s3 sync
+        ./build
+        s3://${{ env.AWS_S3_BUCKET }}
+        --metadata version=${{ steps.short-sha.outputs.hash }}
+        --exclude build/index.html
+        --exclude build/manifest.json
+
+    - name: Upload new index to S3
+      shell: sh
+      run: >-
+        aws s3 cp
+        ./build/index.html
+        s3://${{ env.AWS_S3_BUCKET }}
+        --metadata version=${{ steps.short-sha.outputs.hash }}
+        --cache-control no-cache
+        --metadata-directive REPLACE
+
+    - name: Upload new manifest to S3
+      shell: sh
+      run: >-
+        aws s3 cp
+        ./build/manifest.json
+        s3://${{ env.AWS_S3_BUCKET }}
+        --metadata version=${{ steps.short-sha.outputs.hash }}
+        --cache-control no-cache
+        --metadata-directive REPLACE
+
+    - name: Remove old assets from S3
+      shell: sh
+      run: >-
+        aws s3 sync
+        ./build
+        s3://${{ env.AWS_S3_BUCKET }}
+        --metadata version=${{ steps.short-sha.outputs.hash }}
+        --delete
+
+    - name: Create Sentry deployment
+      if: ${{ inputs.sentry-enabled == 'true' }}
+      uses: getsentry/action-release@00ed2a6cc2171514e031a0f5b4b3cdc586dc171a # v3
+      env:
+        SENTRY_URL: "https://sentry.io/"
+      with:
+        # The version corresponds to the Sentry release name.
+        # It is unique for the whole organization, across projects and environments.
+        version: ${{ env.SENTRY_PROJECT }}@${{ steps.short-sha.outputs.hash }}
+        environment: ${{ env.SENTRY_ENV }}

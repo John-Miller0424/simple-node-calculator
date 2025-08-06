@@ -1,0 +1,157 @@
+name: E2E Tests
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: "read"
+  id-token: "write"
+  actions: "read"
+
+jobs:
+  test-web2-invoices:
+    uses: ./.github/workflows/test_e2e_template.yml
+    secrets: inherit
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium]
+        shardIndex: [1, 2, 3, 4, 5]
+        shardTotal: [5]
+    with:
+      shardName: web2-invoices
+      shardIndex: ${{ matrix.shardIndex }}
+      shardTotal: ${{ matrix.shardTotal }}
+
+  test-web2-organization:
+    uses: ./.github/workflows/test_e2e_template.yml
+    secrets: inherit
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium]
+        shardIndex: [1, 2, 3, 4]
+        shardTotal: [4]
+    with:
+      shardName: web2-organization
+      shardIndex: ${{ matrix.shardIndex }}
+      shardTotal: ${{ matrix.shardTotal }}
+
+  test-web2-settings:
+    uses: ./.github/workflows/test_e2e_template.yml
+    secrets: inherit
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium]
+        shardIndex: [1, 2, 3]
+        shardTotal: [3]
+    with:
+      shardName: web2-settings
+      shardIndex: ${{ matrix.shardIndex }}
+      shardTotal: ${{ matrix.shardTotal }}
+
+  test-web2-authentication:
+    uses: ./.github/workflows/test_e2e_template.yml
+    secrets: inherit
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium]
+        shardIndex: [1]
+        shardTotal: [1]
+    with:
+      shardName: web2-authentication
+      shardIndex: ${{ matrix.shardIndex }}
+      shardTotal: ${{ matrix.shardTotal }}
+
+  test-web3:
+    uses: ./.github/workflows/test_e2e_template.yml
+    secrets: inherit
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [chromium]
+        shardIndex: [1, 2]
+        shardTotal: [2]
+    with:
+      shardName: web3
+      shardIndex: ${{ matrix.shardIndex }}
+      shardTotal: ${{ matrix.shardTotal }}
+
+  test-reports:
+    if: "!cancelled()" # Run this step even when the tests fail. Skip if the workflow is canceled.
+    needs:
+      - test-web2-invoices
+      - test-web2-organization
+      - test-web2-settings
+      - test-web2-authentication
+      - test-web3
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deps
+
+      - name: Download blob reports
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: playwright-blob-*
+          path: e2e/test-results
+          merge-multiple: true
+
+      - name: Merge reports
+        working-directory: e2e
+        run: pnpm playwright merge-reports --config=playwright-merge.config.ts test-results
+
+      - name: Upload HTML report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-test-results-html-attempt-${{ github.run_attempt }}
+          path: e2e/test-results-html
+          retention-days: 30
+
+      - name: Upload test results to BuildPulse for flaky test detection
+        uses: buildpulse/buildpulse-action@d4d8e00c645a2e3db0419a43664bbcf868080234 # main
+        with:
+          account: ${{ vars.BUILDPULSE_ACCOUNT }}
+          repository: ${{ vars.BUILDPULSE_REPOSITORY }}
+          path: |
+            e2e/test-results.xml
+          key: ${{ vars.BUILDPULSE_ACCESS_KEY_ID }}
+          secret: ${{ secrets.BUILDPULSE_SECRET_ACCESS_KEY }}
+          tags: e2e
+
+      - name: Download and extract previous test results artifact
+        if: github.event_name != 'pull_request'
+        uses: dawidd6/action-download-artifact@ac66b43f0e6a346234dd65d4d0c8fbb31cb316e5 # v11
+        with:
+          # do not take into consideration the status of previous workflows
+          workflow_conclusion: ""
+          event: push
+          branch: ${{ github.ref_name }}
+          name: playwright-test-results-json
+          # find the last "test_e2e.yml" workflow with a "playwright-test-results-json" artifact (in case the previous one was cancelled)
+          # see https://github.com/dawidd6/action-download-artifact/blob/19f6be5f04a702e84928b9c7db33da57bd5415c2/main.js#L150
+          search_artifacts: true
+          path: previous-test-results
+          # upload "playwright-test-results-json" (see next step) even when this step fails
+          if_no_artifact_found: warn
+
+      - name: Upload JSON report
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-test-results-json
+          path: e2e/test-results.json
+          retention-days: 30
+
+      - name: Send Slack message on failure
+        if: failure() && github.event_name != 'pull_request'
+        env:
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL_ALERTS_E2E }}
+          TEST_RESULTS_PATH: ${{ github.workspace }}/e2e/test-results.json
+          PREVIOUS_TEST_RESULTS_PATH: ${{ github.workspace }}/previous-test-results/test-results.json
+          GITHUB_ACTOR: ${{ github.actor }}
+          COMMIT_URL: ${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}
+        run: node ./bin/alerts-e2e/send-slack-message.js

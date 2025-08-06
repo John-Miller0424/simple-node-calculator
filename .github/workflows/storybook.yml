@@ -1,0 +1,57 @@
+name: Storybook
+
+on: [workflow_dispatch]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-storybook:
+    uses: ./.github/workflows/build_storybook.yml
+  sb-path:
+    runs-on: ubuntu-latest
+    outputs:
+      path: ${{ steps.path.outputs.path }}
+    steps:
+      - name: Find Pull Request
+        uses: juliangruber/find-pull-request-action@48b6133aa6c826f267ebd33aa2d29470f9d9e7d0 # v1
+        id: pr
+        with:
+          branch: ${{ github.ref }}
+      - id: path
+        run: echo "path=$(echo "pr-$PR_NUMBER-${HEAD_REF/\//__}")" >> $GITHUB_OUTPUT
+        env:
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          HEAD_REF: ${{ github.head_ref }}
+      - run: echo  ${{ steps.path.outputs.path }}
+
+  deploy-storybook:
+    needs:
+      - build-storybook
+      - sb-path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: ./.github/actions/deploy
+        with:
+          artifact-name: build-artifact-storybook
+          inject-env-vars: "false"
+          sentry-enabled: "false"
+        env:
+          AWS_REGION: eu-west-1
+          AWS_S3_BUCKET: request-storybook/${{ needs.sb-path.outputs.path }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+  comment-storybook:
+    needs:
+      - deploy-storybook
+      - sb-path
+    runs-on: ubuntu-latest
+    #if: github.event_name =="opened"
+    steps:
+      - uses: mshick/add-pr-comment@b8f338c590a895d50bcbfa6c5859251edc8952fc # v2
+        with:
+          repo-token: ${{secrets.GITHUB_TOKEN}}
+          message: Storybook available at http://request-storybook.s3-website-eu-west-1.amazonaws.com/${{ needs.sb-path.outputs.path }}/index.html
