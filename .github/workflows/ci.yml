@@ -34,7 +34,7 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
       - uses: ./.github/actions/deploy
         with:
           artifact-name: build-artifact-storybook
@@ -50,7 +50,7 @@ jobs:
     if: ${{ github.event_name != 'pull_request' || startsWith(github.head_ref, 'qa/') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
       - uses: ./.github/actions/build
         env:
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
@@ -77,7 +77,7 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
       - uses: ./.github/actions/deploy
         env:
           AWS_REGION: eu-west-1
@@ -104,7 +104,7 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
       - uses: ./.github/actions/deploy
         env:
           AWS_REGION: eu-west-1
@@ -130,7 +130,7 @@ jobs:
       cancel-in-progress: true
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v4
       - uses: ./.github/actions/deploy
         env:
           AWS_REGION: eu-west-1
